@@ -1,0 +1,12 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+.DS_Store
+
+output/
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal
+
+*.log

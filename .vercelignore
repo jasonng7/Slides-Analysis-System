@@ -1,0 +1,16 @@
+.venv/
+.env
+.pytest_cache/
+__pycache__/
+*.pyc
+.DS_Store
+
+src/
+tests/
+data/
+input_content/
+input_decks/
+output/
+
+requirements.txt
+BUILD_PLAN_slide_intelligence_system.md

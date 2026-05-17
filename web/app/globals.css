@@ -265,6 +265,52 @@ h3 {
   background: #0b5f59;
 }
 
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.error-message {
+  margin: 14px 0 0;
+  padding: 12px;
+  border: 1px solid rgba(180, 35, 24, 0.25);
+  border-radius: 8px;
+  background: #fff1f0;
+  color: var(--red);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.job-panel {
+  display: grid;
+  gap: 7px;
+  margin-top: 14px;
+  padding: 13px;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: 8px;
+  background: var(--soft-teal);
+  color: var(--navy);
+}
+
+.job-panel span {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.download-link {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 36px;
+  align-items: center;
+  padding: 0 12px;
+  border-radius: 8px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .pipeline-list {
   display: grid;
   gap: 10px;

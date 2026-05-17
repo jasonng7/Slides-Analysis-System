@@ -10,6 +10,7 @@ data/*.sqlite-shm
 data/*.sqlite-wal
 
 *.log
+*.pem
 
 node_modules/
 .next/

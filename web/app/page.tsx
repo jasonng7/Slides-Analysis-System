@@ -18,9 +18,36 @@ import {
   ShieldCheck,
   UploadCloud
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type StepStatus = "ready" | "running" | "complete";
+
+type ApiJob = {
+  job_id: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  download_url?: string | null;
+  error?: string | null;
+  result?: {
+    matching_method?: string;
+    number_of_slides?: number;
+    number_of_content_slides?: number;
+    cloned_slide_count?: number;
+    image_fallback_count?: number;
+    qa_score?: number;
+    qa_rating?: string;
+    qa_top_issues?: Array<{ severity?: string; category?: string; message?: string }>;
+  } | null;
+};
+
+type ApiHealth = {
+  status: string;
+  deck_count: number;
+  slide_count: number;
+  classified_slides: number;
+  slides_with_text_embeddings: number;
+  embedding_model: string;
+  cleanup_policy: string;
+};
 
 const pipelineSteps = [
   {
@@ -114,10 +141,31 @@ export default function Home() {
   const [mode, setMode] = useState("deck");
   const [activeStep, setActiveStep] = useState(0);
   const [hasRun, setHasRun] = useState(false);
+  const [apiHealth, setApiHealth] = useState<ApiHealth | null>(null);
+  const [apiError, setApiError] = useState("");
+  const [job, setJob] = useState<ApiJob | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
+  const backendEnabled = Boolean(apiBase);
 
   const wordCount = useMemo(() => {
     return sourceText.trim().split(/\s+/).filter(Boolean).length;
   }, [sourceText]);
+
+  useEffect(() => {
+    if (!backendEnabled) return;
+    fetch(`${apiBase}/api/health`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`Backend health check failed: ${response.status}`);
+        return response.json();
+      })
+      .then((payload: ApiHealth) => {
+        setApiHealth(payload);
+        setApiError("");
+      })
+      .catch((error: Error) => setApiError(error.message));
+  }, [apiBase, backendEnabled]);
 
   function runDemo() {
     setHasRun(true);
@@ -127,7 +175,77 @@ export default function Home() {
     });
   }
 
+  async function startGeneration() {
+    if (!backendEnabled) {
+      runDemo();
+      return;
+    }
+
+    setIsSubmitting(true);
+    setApiError("");
+    setJob(null);
+    setHasRun(true);
+    setActiveStep(1);
+
+    try {
+      const response = await fetch(`${apiBase}/api/jobs/text`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: sourceText, goal, mode })
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Backend request failed: ${response.status}`);
+      }
+      const createdJob = (await response.json()) as ApiJob;
+      setJob(createdJob);
+      pollJob(createdJob.job_id);
+    } catch (error) {
+      setApiError(error instanceof Error ? error.message : "Generation failed");
+      setIsSubmitting(false);
+      setActiveStep(0);
+    }
+  }
+
+  async function pollJob(jobId: string) {
+    const startedAt = Date.now();
+    const poll = async () => {
+      try {
+        const response = await fetch(`${apiBase}/api/jobs/${jobId}`);
+        if (!response.ok) throw new Error(`Job status failed: ${response.status}`);
+        const nextJob = (await response.json()) as ApiJob;
+        setJob(nextJob);
+
+        if (nextJob.status === "queued") setActiveStep(2);
+        if (nextJob.status === "running") setActiveStep(4);
+        if (nextJob.status === "succeeded") {
+          setActiveStep(pipelineSteps.length);
+          setIsSubmitting(false);
+          return;
+        }
+        if (nextJob.status === "failed") {
+          setApiError(nextJob.error || "Generation job failed");
+          setIsSubmitting(false);
+          return;
+        }
+        if (Date.now() - startedAt > 10 * 60 * 1000) {
+          setApiError("Generation is taking longer than expected. Check EC2 logs or retry.");
+          setIsSubmitting(false);
+          return;
+        }
+        window.setTimeout(poll, 3000);
+      } catch (error) {
+        setApiError(error instanceof Error ? error.message : "Polling failed");
+        setIsSubmitting(false);
+      }
+    };
+    window.setTimeout(poll, 1500);
+  }
+
   const finished = hasRun && activeStep >= pipelineSteps.length;
+  const downloadHref = job?.download_url && backendEnabled ? `${apiBase}${job.download_url}` : "";
+  const displayedQaScore = job?.result?.qa_score ?? 80;
+  const displayedQaRating = job?.result?.qa_rating ?? "Usable with minor review";
 
   return (
     <main className="page-shell">
@@ -136,7 +254,7 @@ export default function Home() {
           <p className="eyebrow">Slide Analysis System MVP</p>
           <h1>Demo dashboard for content-to-deck intelligence</h1>
           <p className="subcopy">
-            A Vercel-ready interface that explains the current working pipeline:
+            A Vercel-ready interface connected to an EC2 processing backend:
             content understanding, recommendation, OSK template matching,
             editable PPTX generation, and QA review.
           </p>
@@ -144,8 +262,14 @@ export default function Home() {
         <div className="status-panel">
           <span className="status-dot" />
           <div>
-            <strong>Demo-safe deployment</strong>
-            <span>No Supabase required for this version</span>
+            <strong>{backendEnabled ? "EC2 backend configured" : "Demo mode"}</strong>
+            <span>
+              {backendEnabled
+                ? apiHealth
+                  ? `${apiHealth.slide_count} slides, ${apiHealth.slides_with_text_embeddings} embeddings ready`
+                  : "Checking backend health..."
+                : "Set NEXT_PUBLIC_API_BASE_URL to enable real generation"}
+            </span>
           </div>
         </div>
       </section>
@@ -166,7 +290,11 @@ export default function Home() {
             <UploadCloud size={22} />
             <div>
               <h2>Demo Input</h2>
-              <p>Paste content or show where a source file would be uploaded.</p>
+              <p>
+                {backendEnabled
+                  ? "Paste content and generate a real PPTX through the EC2 backend."
+                  : "Paste content or show where a source file would be uploaded."}
+              </p>
             </div>
           </div>
 
@@ -199,7 +327,7 @@ export default function Home() {
             </div>
             <div className="file-drop">
               <FileText size={19} />
-              <span>File upload connects in Stage 9B</span>
+              <span>{backendEnabled ? "File upload API ready; UI upload comes next" : "File upload connects after API setup"}</span>
             </div>
           </div>
 
@@ -215,10 +343,26 @@ export default function Home() {
 
           <div className="input-footer">
             <span>{wordCount} words</span>
-            <button onClick={runDemo} className="primary-button">
-              Run demo flow
+            <button onClick={startGeneration} disabled={isSubmitting} className="primary-button">
+              {isSubmitting
+                ? "Generating..."
+                : backendEnabled
+                  ? "Generate real PPTX"
+                  : "Run demo flow"}
             </button>
           </div>
+          {apiError ? <p className="error-message">{apiError}</p> : null}
+          {job ? (
+            <div className="job-panel">
+              <strong>Job {job.job_id.slice(0, 8)}</strong>
+              <span>Status: {job.status}</span>
+              {downloadHref ? (
+                <a href={downloadHref} className="download-link">
+                  Download generated PPTX
+                </a>
+              ) : null}
+            </div>
+          ) : null}
         </article>
 
         <article className="flow-panel">
@@ -262,7 +406,15 @@ export default function Home() {
             <BarChart3 size={22} />
             <div>
               <h2>Recommended Deck</h2>
-              <p>{finished ? "Generated from the demo input." : "Run the demo flow to reveal the output."}</p>
+              <p>
+                {finished
+                  ? backendEnabled
+                    ? "Generated by the EC2 backend."
+                    : "Generated from the demo input."
+                  : backendEnabled
+                    ? "Submit content to generate and download a real deck."
+                    : "Run the demo flow to reveal the output."}
+              </p>
             </div>
           </div>
           <ol className="slide-list">
@@ -304,15 +456,19 @@ export default function Home() {
             <ShieldCheck size={22} />
             <div>
               <h2>QA Review</h2>
-              <p>Current local generated deck result.</p>
+              <p>{job?.result ? "Latest generated deck result." : "Current local generated deck result."}</p>
             </div>
           </div>
-          <div className="score-ring">80</div>
-          <h3>Usable with minor review</h3>
+          <div className="score-ring">{displayedQaScore}</div>
+          <h3>{displayedQaRating}</h3>
           <ul className="qa-list">
-            <li>23 / 23 content slides cloned from matched source PPTX</li>
-            <li>0 image fallbacks detected</li>
-            <li>Deck may need condensing for a board-ready first draft</li>
+            <li>
+              {job?.result
+                ? `${job.result.cloned_slide_count ?? 0} content slides cloned from matched source PPTX`
+                : "23 / 23 content slides cloned from matched source PPTX"}
+            </li>
+            <li>{job?.result ? `${job.result.image_fallback_count ?? 0} image fallbacks detected` : "0 image fallbacks detected"}</li>
+            <li>{job?.result?.matching_method ? `Matching method: ${job.result.matching_method}` : "Deck may need condensing for a board-ready first draft"}</li>
           </ul>
         </article>
       </section>
@@ -328,18 +484,18 @@ export default function Home() {
         <div className="deployment-grid">
           <div>
             <BadgeCheck size={20} />
-            <strong>Vercel now</strong>
-            <span>Dashboard, flow visualization, demo input, manager walkthrough.</span>
+              <strong>Vercel now</strong>
+            <span>Dashboard, content input, job polling, and PPTX download link.</span>
           </div>
           <div>
             <BadgeCheck size={20} />
-            <strong>Python backend later</strong>
+            <strong>EC2 backend</strong>
             <span>LibreOffice rendering, OpenAI calls, PPTX generation, QA jobs.</span>
           </div>
           <div>
             <BadgeCheck size={20} />
-            <strong>Supabase optional</strong>
-            <span>Needed only when you want cloud uploads, persistent jobs, and team access.</span>
+            <strong>Temporary storage</strong>
+            <span>Generated files are kept briefly on EC2 and cleaned after 15 minutes.</span>
           </div>
         </div>
       </section>

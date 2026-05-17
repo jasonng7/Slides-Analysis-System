@@ -163,7 +163,8 @@ QA reports are saved as JSON and Markdown in `output/qa_reports/`.
 ## Vercel Demo Dashboard
 
 The `web/` folder contains a Next.js dashboard for manager demos. It visualizes
-the project flow without moving the heavy Python processing pipeline onto Vercel.
+the project flow and can call the EC2 FastAPI backend when
+`NEXT_PUBLIC_API_BASE_URL` is configured in Vercel.
 
 ```bash
 cd web
@@ -171,10 +172,49 @@ npm install
 npm run dev
 ```
 
-For Vercel deployment, import the GitHub repo and set the project root directory
-to `web`. No Supabase credentials are required for the demo dashboard. Supabase
-or Vercel Blob should be added later only when browser uploads, persistent cloud
-jobs, and shared generated files are needed.
+For Vercel deployment, import the GitHub repo. The root `vercel.json` builds the
+Next.js app from `web/`.
+
+Set this Vercel environment variable to enable real EC2 generation:
+
+```bash
+NEXT_PUBLIC_API_BASE_URL=http://13.214.251.94
+```
+
+Use HTTPS and a domain later for production. Supabase or Vercel Blob should be
+added later only when browser uploads, persistent cloud jobs, and shared
+generated files are needed.
+
+## EC2 API Backend
+
+The FastAPI backend exposes the local Python engine over HTTP:
+
+```bash
+.venv/bin/uvicorn --app-dir src api.app:app --host 127.0.0.1 --port 8000
+```
+
+Useful endpoints:
+
+- `GET /api/health`
+- `POST /api/jobs/text`
+- `POST /api/jobs/file`
+- `GET /api/jobs/{job_id}`
+- `GET /api/jobs/{job_id}/download`
+
+For the current MVP, generated files are stored temporarily on EC2 and cleaned
+after 15 minutes by the `slide-analysis-cleanup.timer` systemd timer.
+
+Example text job:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/jobs/text \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "We are evaluating whether OSK should enter the earned wage access market in Malaysia.",
+    "goal": "Create a board-ready market entry recommendation deck",
+    "mode": "deck"
+  }'
+```
 
 Outputs are written to:
 

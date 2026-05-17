@@ -12,8 +12,11 @@ data/*.sqlite-wal
 *.log
 *.pem
 
+.vercel/
+web/.vercel/
 node_modules/
 .next/
 web/node_modules/
 web/.next/
 web/out/
+.vercel

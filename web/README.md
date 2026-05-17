@@ -34,7 +34,14 @@ When importing the GitHub repo into Vercel, set:
 - Build command: `npm run build`
 - Install command: `npm install`
 
-No environment variables are required for this demo UI.
+For real EC2-backed generation, add these Vercel environment variables:
+
+```text
+NEXT_PUBLIC_API_BASE_URL=/api/backend
+BACKEND_API_BASE_URL=http://13.214.251.94
+```
+
+The `/api/backend` route is a Vercel server-side proxy to the EC2 FastAPI app.
 
 ## Later Cloud Processing
 

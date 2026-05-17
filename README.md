@@ -178,12 +178,15 @@ Next.js app from `web/`.
 Set this Vercel environment variable to enable real EC2 generation:
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=http://13.214.251.94
+NEXT_PUBLIC_API_BASE_URL=/api/backend
+BACKEND_API_BASE_URL=http://13.214.251.94
 ```
 
-Use HTTPS and a domain later for production. Supabase or Vercel Blob should be
-added later only when browser uploads, persistent cloud jobs, and shared
-generated files are needed.
+The browser calls the same-origin Vercel proxy at `/api/backend`, and the Vercel
+server forwards requests to EC2. This avoids browser mixed-content blocking while
+the EC2 API is still HTTP-only. Use HTTPS and a domain later for production.
+Supabase or Vercel Blob should be added later only when persistent cloud jobs,
+auth, and shared generated files are needed.
 
 ## EC2 API Backend
 

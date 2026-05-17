@@ -1,17 +1,21 @@
 # Slide Intelligence System
 
-Stage 1/2 prototype for ingesting PDF and PPTX decks.
+End-to-end slide intelligence MVP for ingesting slide libraries, classifying
+reusable consulting slide patterns, recommending deck structures from source
+content, generating editable reference-slide PowerPoint drafts, and reviewing
+generated decks with QA checks.
 
 ## What works now
 
-- Creates the planned project folders.
-- Converts PDF pages into PNG slide images.
-- Converts PPTX slides into PNG slide images through LibreOffice.
-- Extracts text from PDF pages and PPTX slides.
-- Writes one metadata JSON file per slide.
-
-Later stages will add SQLite storage, classification, embeddings, recommendations,
-and placeholder PowerPoint generation.
+- PDF/PPTX ingestion into slide images, extracted text, and metadata.
+- SQLite registration for slide and content libraries.
+- LLM-powered slide classification.
+- Content extraction and analysis from PDF, PPTX, DOCX, TXT, MD, CSV, or pasted text.
+- Semantic slide-pattern search with text embeddings.
+- Slide/deck recommendation using local OSK template patterns.
+- Generic, reference-image, and editable reference-slide PPTX generation.
+- QA review for recommendation JSON and generated PPTX decks.
+- Vercel-ready web demo dashboard in `web/`.
 
 ## Install
 
@@ -155,6 +159,22 @@ python src/main.py qa-summary
 ```
 
 QA reports are saved as JSON and Markdown in `output/qa_reports/`.
+
+## Vercel Demo Dashboard
+
+The `web/` folder contains a Next.js dashboard for manager demos. It visualizes
+the project flow without moving the heavy Python processing pipeline onto Vercel.
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+For Vercel deployment, import the GitHub repo and set the project root directory
+to `web`. No Supabase credentials are required for the demo dashboard. Supabase
+or Vercel Blob should be added later only when browser uploads, persistent cloud
+jobs, and shared generated files are needed.
 
 Outputs are written to:
 

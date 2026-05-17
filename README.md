@@ -20,7 +20,7 @@ generated decks with QA checks.
 ## Install
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m pip install -r backend/requirements.txt
 ```
 
 PPTX rendering requires LibreOffice (`soffice`) to be available on `PATH`.

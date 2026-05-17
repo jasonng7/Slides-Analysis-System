@@ -13,4 +13,5 @@ input_decks/
 output/
 
 requirements.txt
+backend/
 BUILD_PLAN_slide_intelligence_system.md

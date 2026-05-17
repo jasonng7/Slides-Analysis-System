@@ -111,6 +111,51 @@ python src/main.py generated-deck-summary
 Stage 7 generates placeholder skeleton decks only. It does not recreate OSK design
 styling or generate final polished slides.
 
+## Reference-Style Placeholder PowerPoint Generation
+
+Generate a stronger visual draft by using matched reference slide PNGs as
+non-editable backgrounds, then overlaying editable content and build-note boxes:
+
+```bash
+python src/main.py generate-reference-pptx --recommendation output/recommendations/latest_recommendation.json --output output/generated_decks/market_entry_reference_style.pptx
+python src/main.py generate-reference-pptx-from-text --text "Paste content here" --goal "Create a board-ready market entry deck" --mode deck --output output/generated_decks/market_entry_reference_style.pptx
+python src/main.py generate-reference-pptx-from-file --file input_content/sample_report.pdf --goal "Create a board-ready market entry deck" --mode deck --output output/generated_decks/market_entry_reference_style.pptx
+```
+
+Stage 8A uses reference slide images as backgrounds. The overlaid text boxes are
+editable, but the reference background itself is not yet editable. True slide
+duplication and shape-level content replacement are left for a later stage.
+
+## Editable Reference-Slide PowerPoint Generation
+
+Generate a more editable reference-style draft by cloning matched source PPTX
+slides where possible, replacing the title, and adding editable content/build
+note panels. Slides that cannot be cloned fall back to the Stage 8A image
+background approach:
+
+```bash
+python src/main.py generate-editable-reference-pptx --recommendation output/recommendations/latest_recommendation.json --output output/generated_decks/market_entry_editable_reference.pptx
+python src/main.py generate-editable-reference-pptx-from-text --text "Paste content here" --goal "Create a board-ready market entry deck" --mode deck --output output/generated_decks/market_entry_editable_reference.pptx
+python src/main.py generate-editable-reference-pptx-from-file --file input_content/sample_report.pdf --goal "Create a board-ready market entry deck" --mode deck --output output/generated_decks/market_entry_editable_reference.pptx
+```
+
+Stage 8B is an MVP. It works best for normal text boxes, shapes, and images.
+Complex grouped objects, charts, embedded workbooks, and master-layout behavior
+still require manual QA.
+
+## Generated Deck QA
+
+Review recommendation JSON and generated PPTX files before using them:
+
+```bash
+python src/main.py review-recommendation --recommendation output/recommendations/latest_recommendation.json
+python src/main.py review-generated-deck --pptx output/generated_decks/market_entry_editable_reference.pptx
+python src/main.py review-latest-generated-deck
+python src/main.py qa-summary
+```
+
+QA reports are saved as JSON and Markdown in `output/qa_reports/`.
+
 Outputs are written to:
 
 - `output/slide_images/`
@@ -121,3 +166,4 @@ Outputs are written to:
 - `output/recommendations/`
 - `output/embeddings/`
 - `output/generated_decks/`
+- `output/qa_reports/`

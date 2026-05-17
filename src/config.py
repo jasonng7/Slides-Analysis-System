@@ -23,6 +23,9 @@ OUTPUT_DIRECTORIES = {
     "generated_deck_logs": OUTPUT_DIR / "generated_decks" / "logs",
     "generated_deck_metadata": OUTPUT_DIR / "generated_decks" / "metadata",
     "generated_templates": OUTPUT_DIR / "generated_templates",
+    "qa_reports": OUTPUT_DIR / "qa_reports",
+    "qa_reports_json": OUTPUT_DIR / "qa_reports" / "json",
+    "qa_reports_markdown": OUTPUT_DIR / "qa_reports" / "markdown",
     "recommendations": OUTPUT_DIR / "recommendations",
     "recommendation_errors": OUTPUT_DIR / "recommendations" / "errors",
 }

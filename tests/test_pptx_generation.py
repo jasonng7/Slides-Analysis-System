@@ -6,11 +6,15 @@ from pathlib import Path
 import pytest
 
 from pptx_generation.notes_builder import build_slide_notes
+from pptx_generation.editable_reference_deck_generator import (
+    generate_editable_reference_deck_from_recommendation,
+)
 from pptx_generation.placeholder_deck_generator import (
     generate_placeholder_deck_from_recommendation,
     normalize_recommendation_to_slide_plans,
 )
 from pptx_generation.pptx_repository import default_output_path, save_generation_metadata
+from pptx_generation.reference_deck_generator import generate_reference_deck_from_recommendation
 from pptx_generation.slide_layout_builder import select_layout_family
 
 
@@ -184,3 +188,63 @@ def test_generated_deck_from_recommendation_file(tmp_path) -> None:
     assert metadata["number_of_content_slides"] == 2
     assert metadata["number_of_slides"] == 5
     assert Path(metadata["speaker_notes_path"]).exists()
+
+
+def test_reference_deck_uses_reference_backgrounds(tmp_path, monkeypatch) -> None:
+    pytest.importorskip("pptx")
+    Image = pytest.importorskip("PIL.Image")
+    recommendation_path = tmp_path / "recommendation.json"
+    recommendation_path.write_text(json.dumps(_sample_recommendation()), encoding="utf-8")
+    image_path = tmp_path / "reference.png"
+    Image.new("RGB", (1600, 900), color=(240, 244, 248)).save(image_path)
+
+    def fake_resolver(matched_template):
+        return {
+            "found": True,
+            "deck_name": matched_template.get("deck_name"),
+            "slide_number": matched_template.get("slide_number"),
+            "slide_title": matched_template.get("slide_title"),
+            "slide_image_path": str(image_path),
+        }
+
+    monkeypatch.setattr(
+        "pptx_generation.reference_deck_generator.resolve_reference_slide_image",
+        fake_resolver,
+    )
+    output_path = tmp_path / "stage8a_reference_deck.pptx"
+
+    metadata = generate_reference_deck_from_recommendation(recommendation_path, output_path)
+
+    assert Path(metadata["output_path"]).exists()
+    assert metadata["generator_version"] == "stage8a_reference_image_background_v1"
+    assert metadata["content_slides_with_reference_background"] == 2
+    assert metadata["reference_background_mode"] == "slide_image_background_with_editable_overlays"
+
+
+def test_editable_reference_deck_reports_cloned_slides(tmp_path, monkeypatch) -> None:
+    pytest.importorskip("pptx")
+    recommendation_path = tmp_path / "recommendation.json"
+    recommendation_path.write_text(json.dumps(_sample_recommendation()), encoding="utf-8")
+
+    def fake_clone(prs, slide_plan, presentation_cache=None):
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        slide.shapes.add_textbox(0, 0, 1000, 1000).text = slide_plan["slide_title"]
+        return slide, {
+            "deck_name": slide_plan["matched_template"].get("deck_name"),
+            "slide_number": slide_plan["matched_template"].get("slide_number"),
+            "slide_title": slide_plan["matched_template"].get("slide_title"),
+            "source_file": "source.pptx",
+        }
+
+    monkeypatch.setattr(
+        "pptx_generation.editable_reference_deck_generator.clone_reference_slide_into",
+        fake_clone,
+    )
+    output_path = tmp_path / "stage8b_editable_deck.pptx"
+
+    metadata = generate_editable_reference_deck_from_recommendation(recommendation_path, output_path)
+
+    assert Path(metadata["output_path"]).exists()
+    assert metadata["generator_version"] == "stage8b_editable_reference_slide_clone_v1"
+    assert metadata["content_slides_cloned_from_source_pptx"] == 2
+    assert metadata["content_slides_with_image_fallback"] == 0

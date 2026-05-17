@@ -16,12 +16,33 @@ from embeddings.build_vector_index import embed_classified_slides
 from embeddings.embedding_repository import get_embedding_summary
 from embeddings.search_similar_slides import search_similar_slides_by_text
 from ingestion.collect_library import ingest_deck
+from pptx_generation.editable_reference_deck_generator import (
+    generate_editable_reference_deck_from_file,
+    generate_editable_reference_deck_from_recommendation,
+    generate_editable_reference_deck_from_text,
+)
 from pptx_generation.placeholder_deck_generator import (
     generate_placeholder_deck_from_file,
     generate_placeholder_deck_from_recommendation,
     generate_placeholder_deck_from_text,
 )
 from pptx_generation.pptx_repository import list_generated_decks, python_pptx_available
+from pptx_generation.reference_deck_generator import (
+    generate_reference_deck_from_file,
+    generate_reference_deck_from_recommendation,
+    generate_reference_deck_from_text,
+)
+from quality_control.generated_deck_qa import review_generated_deck
+from quality_control.qa_report_builder import build_markdown_qa_report, build_terminal_qa_summary
+from quality_control.qa_repository import (
+    find_latest_generated_deck,
+    find_matching_metadata_for_deck,
+    find_matching_notes_for_deck,
+    list_qa_reports,
+    save_qa_json,
+    save_qa_markdown,
+)
+from quality_control.recommendation_qa import review_recommendation
 from recommendation.recommend_from_content import recommend_from_content
 from utils.file_utils import ensure_project_directories, resolve_input_file
 from utils.logging_utils import configure_logging
@@ -200,6 +221,112 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "generated-deck-summary",
         help="Print generated placeholder deck summary.",
+    )
+
+    reference_parser = subparsers.add_parser(
+        "generate-reference-pptx",
+        help="Generate a reference-slide-background PPTX from a recommendation JSON file.",
+    )
+    reference_parser.add_argument(
+        "--recommendation",
+        required=True,
+        help="Path to recommendation JSON. Use output/recommendations/latest_recommendation.json for the latest file.",
+    )
+    reference_parser.add_argument("--output", help="Output PPTX path.")
+
+    reference_text_parser = subparsers.add_parser(
+        "generate-reference-pptx-from-text",
+        help="Run recommendation from pasted text, then generate a reference-style PPTX.",
+    )
+    reference_text_parser.add_argument("--text", required=True, help="Pasted source text.")
+    reference_text_parser.add_argument("--goal", help="Optional presentation goal.")
+    reference_text_parser.add_argument(
+        "--mode",
+        choices=["slide", "deck", "audit", "classify", "auto"],
+        default="deck",
+        help="Requested output mode.",
+    )
+    reference_text_parser.add_argument("--output", help="Output PPTX path.")
+
+    reference_file_parser = subparsers.add_parser(
+        "generate-reference-pptx-from-file",
+        help="Run recommendation from a source file, then generate a reference-style PPTX.",
+    )
+    reference_file_parser.add_argument("--file", required=True, help="Path to source content file.")
+    reference_file_parser.add_argument("--goal", help="Optional presentation goal.")
+    reference_file_parser.add_argument(
+        "--mode",
+        choices=["slide", "deck", "audit", "classify", "auto"],
+        default="deck",
+        help="Requested output mode.",
+    )
+    reference_file_parser.add_argument("--output", help="Output PPTX path.")
+
+    editable_parser = subparsers.add_parser(
+        "generate-editable-reference-pptx",
+        help="Generate a PPTX by cloning matched source slides where possible.",
+    )
+    editable_parser.add_argument(
+        "--recommendation",
+        required=True,
+        help="Path to recommendation JSON. Use output/recommendations/latest_recommendation.json for the latest file.",
+    )
+    editable_parser.add_argument("--output", help="Output PPTX path.")
+
+    editable_text_parser = subparsers.add_parser(
+        "generate-editable-reference-pptx-from-text",
+        help="Run recommendation from pasted text, then clone matched source slides where possible.",
+    )
+    editable_text_parser.add_argument("--text", required=True, help="Pasted source text.")
+    editable_text_parser.add_argument("--goal", help="Optional presentation goal.")
+    editable_text_parser.add_argument(
+        "--mode",
+        choices=["slide", "deck", "audit", "classify", "auto"],
+        default="deck",
+        help="Requested output mode.",
+    )
+    editable_text_parser.add_argument("--output", help="Output PPTX path.")
+
+    editable_file_parser = subparsers.add_parser(
+        "generate-editable-reference-pptx-from-file",
+        help="Run recommendation from a source file, then clone matched source slides where possible.",
+    )
+    editable_file_parser.add_argument("--file", required=True, help="Path to source content file.")
+    editable_file_parser.add_argument("--goal", help="Optional presentation goal.")
+    editable_file_parser.add_argument(
+        "--mode",
+        choices=["slide", "deck", "audit", "classify", "auto"],
+        default="deck",
+        help="Requested output mode.",
+    )
+    editable_file_parser.add_argument("--output", help="Output PPTX path.")
+
+    review_rec_parser = subparsers.add_parser(
+        "review-recommendation",
+        help="Run QA on a recommendation JSON file.",
+    )
+    review_rec_parser.add_argument("--recommendation", required=True, help="Path to recommendation JSON.")
+    review_rec_parser.add_argument("--output-json", help="Optional QA JSON output path.")
+    review_rec_parser.add_argument("--output-md", help="Optional QA Markdown output path.")
+
+    review_deck_parser = subparsers.add_parser(
+        "review-generated-deck",
+        help="Run QA on a generated PPTX deck.",
+    )
+    review_deck_parser.add_argument("--pptx", required=True, help="Path to generated PPTX.")
+    review_deck_parser.add_argument("--metadata", help="Optional generation metadata JSON path.")
+    review_deck_parser.add_argument("--notes", help="Optional speaker/build notes markdown path.")
+    review_deck_parser.add_argument("--output-json", help="Optional QA JSON output path.")
+    review_deck_parser.add_argument("--output-md", help="Optional QA Markdown output path.")
+
+    subparsers.add_parser(
+        "review-latest-generated-deck",
+        help="Find and QA the latest generated PPTX deck.",
+    )
+
+    subparsers.add_parser(
+        "qa-summary",
+        help="Print QA report summary.",
     )
 
     return parser
@@ -396,6 +523,155 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "generated-deck-summary":
         _print_generated_deck_summary()
+        return 0
+
+    if args.command == "generate-reference-pptx":
+        try:
+            metadata = generate_reference_deck_from_recommendation(
+                recommendation_path=args.recommendation,
+                output_path=args.output,
+            )
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        _print_generated_deck_result(metadata)
+        return 0
+
+    if args.command == "generate-reference-pptx-from-text":
+        load_dotenv()
+        if not os.getenv("OPENAI_API_KEY"):
+            print(
+                "ERROR: OPENAI_API_KEY is missing. Add it to .env before generating reference PPTX from text.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            metadata = generate_reference_deck_from_text(
+                text=args.text,
+                goal=args.goal,
+                mode=args.mode,
+                output_path=args.output,
+            )
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        _print_generated_deck_result(metadata)
+        return 0
+
+    if args.command == "generate-reference-pptx-from-file":
+        load_dotenv()
+        if not os.getenv("OPENAI_API_KEY"):
+            print(
+                "ERROR: OPENAI_API_KEY is missing. Add it to .env before generating reference PPTX from a file.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            metadata = generate_reference_deck_from_file(
+                file_path=args.file,
+                goal=args.goal,
+                mode=args.mode,
+                output_path=args.output,
+            )
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        _print_generated_deck_result(metadata)
+        return 0
+
+    if args.command == "generate-editable-reference-pptx":
+        try:
+            metadata = generate_editable_reference_deck_from_recommendation(
+                recommendation_path=args.recommendation,
+                output_path=args.output,
+            )
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        _print_generated_deck_result(metadata)
+        return 0
+
+    if args.command == "generate-editable-reference-pptx-from-text":
+        load_dotenv()
+        if not os.getenv("OPENAI_API_KEY"):
+            print(
+                "ERROR: OPENAI_API_KEY is missing. Add it to .env before generating editable reference PPTX from text.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            metadata = generate_editable_reference_deck_from_text(
+                text=args.text,
+                goal=args.goal,
+                mode=args.mode,
+                output_path=args.output,
+            )
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        _print_generated_deck_result(metadata)
+        return 0
+
+    if args.command == "generate-editable-reference-pptx-from-file":
+        load_dotenv()
+        if not os.getenv("OPENAI_API_KEY"):
+            print(
+                "ERROR: OPENAI_API_KEY is missing. Add it to .env before generating editable reference PPTX from a file.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            metadata = generate_editable_reference_deck_from_file(
+                file_path=args.file,
+                goal=args.goal,
+                mode=args.mode,
+                output_path=args.output,
+            )
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        _print_generated_deck_result(metadata)
+        return 0
+
+    if args.command == "review-recommendation":
+        try:
+            qa_result = review_recommendation(args.recommendation)
+            _save_and_print_qa(qa_result, args.output_json, args.output_md)
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "review-generated-deck":
+        try:
+            metadata_path = args.metadata or find_matching_metadata_for_deck(args.pptx)
+            notes_path = args.notes or find_matching_notes_for_deck(args.pptx)
+            qa_result = review_generated_deck(args.pptx, metadata_path, notes_path)
+            _save_and_print_qa(qa_result, args.output_json, args.output_md)
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "review-latest-generated-deck":
+        latest = find_latest_generated_deck()
+        if latest is None:
+            print("ERROR: no generated PPTX decks found in output/generated_decks", file=sys.stderr)
+            return 1
+        try:
+            qa_result = review_generated_deck(
+                latest,
+                find_matching_metadata_for_deck(latest),
+                find_matching_notes_for_deck(latest),
+            )
+            _save_and_print_qa(qa_result)
+        except Exception as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.command == "qa-summary":
+        _print_qa_summary()
         return 0
 
     parser.print_help()
@@ -641,13 +917,31 @@ def _print_slide_search_results(results) -> None:
 
 
 def _print_generated_deck_result(metadata) -> None:
-    print("Placeholder PPTX generated")
+    if metadata.get("reference_background_mode"):
+        print("Reference-style PPTX generated")
+    else:
+        print("Placeholder PPTX generated")
     print(f"Output PPTX: {metadata.get('output_path')}")
     print(f"Metadata JSON: {metadata.get('metadata_path')}")
     print(f"Speaker notes markdown: {metadata.get('speaker_notes_path')}")
     print(f"Slides: {metadata.get('number_of_slides')}")
     print(f"Content slides: {metadata.get('number_of_content_slides')}")
     print(f"Matching method: {metadata.get('matching_method')}")
+    if metadata.get("reference_background_mode"):
+        print(f"Reference background mode: {metadata.get('reference_background_mode')}")
+        if "content_slides_cloned_from_source_pptx" in metadata:
+            print(
+                "Cloned source slides: "
+                f"{metadata.get('content_slides_cloned_from_source_pptx', 0)}/"
+                f"{metadata.get('number_of_content_slides', 0)}"
+            )
+            print(f"Image fallbacks: {metadata.get('content_slides_with_image_fallback', 0)}")
+        else:
+            print(
+                "Reference backgrounds: "
+                f"{metadata.get('content_slides_with_reference_background', 0)}/"
+                f"{metadata.get('number_of_content_slides', 0)}"
+            )
     references = metadata.get("referenced_template_slides", [])
     print(f"Referenced template slides: {len(references)}")
 
@@ -676,6 +970,45 @@ def _print_generated_deck_summary() -> None:
     if warnings:
         status += f"; {len(warnings)} warning(s)"
     print(f"Last generation status: {status}")
+
+
+def _save_and_print_qa(
+    qa_result,
+    output_json: str | None = None,
+    output_md: str | None = None,
+) -> None:
+    json_path = save_qa_json(qa_result, output_json)
+    qa_result["qa_json_path"] = str(json_path)
+    markdown = build_markdown_qa_report(qa_result)
+    md_path = save_qa_markdown(markdown, output_md, qa_result)
+    qa_result["qa_markdown_path"] = str(md_path)
+    # Rewrite JSON after adding report output paths, so the report is self-locating.
+    save_qa_json(qa_result, json_path)
+    print(build_terminal_qa_summary(qa_result))
+
+
+def _print_qa_summary() -> None:
+    reports = list_qa_reports(limit=5)
+    all_reports = list_qa_reports(limit=100000)
+    print("QA summary")
+    print(f"QA reports generated: {len(all_reports)}")
+    print("Output folders:")
+    print("- output/qa_reports/json")
+    print("- output/qa_reports/markdown")
+    latest_deck = find_latest_generated_deck()
+    print(f"Latest reviewed deck: {Path(reports[0]['reviewed_path']).name if reports and reports[0].get('reviewed_path') else 'n/a'}")
+    print(f"Latest generated deck: {latest_deck.name if latest_deck else 'n/a'}")
+    print(f"Latest QA score: {reports[0].get('overall_score') if reports else 'n/a'}")
+    print("Latest QA reports:")
+    if not reports:
+        print("- none")
+        return
+    for report in reports:
+        reviewed = Path(str(report.get("reviewed_path") or "unknown")).name
+        print(
+            f"- {report['file_name']}: {report.get('overall_score', 'n/a')} "
+            f"({report.get('rating', 'n/a')}) reviewed={reviewed}"
+        )
 
 
 if __name__ == "__main__":

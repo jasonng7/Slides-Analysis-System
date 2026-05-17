@@ -160,20 +160,16 @@ python src/main.py qa-summary
 
 QA reports are saved as JSON and Markdown in `output/qa_reports/`.
 
-## Vercel Demo Dashboard
+## Vercel Web App
 
-The `web/` folder contains a Next.js dashboard for manager demos. It visualizes
-the project flow and can call the EC2 FastAPI backend when
-`NEXT_PUBLIC_API_BASE_URL` is configured in Vercel.
+The repo root now contains the deployable Next.js app for Vercel. It visualizes
+the project flow and can call the EC2 FastAPI backend when the environment
+variables below are configured.
 
 ```bash
-cd web
 npm install
 npm run dev
 ```
-
-For Vercel deployment, import the GitHub repo. The root `vercel.json` builds the
-Next.js app from `web/`.
 
 Set this Vercel environment variable to enable real EC2 generation:
 

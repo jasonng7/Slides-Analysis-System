@@ -16,9 +16,9 @@ from api.job_store import UPLOADS_DIR, create_job, load_job, public_job, save_jo
 from config import OUTPUT_DIRECTORIES, SUPPORTED_CONTENT_EXTENSIONS
 from database.repository import get_classification_summary, get_database_summary
 from embeddings.embedding_repository import get_embedding_summary
-from pptx_generation.editable_reference_deck_generator import (
-    generate_editable_reference_deck_from_file,
-    generate_editable_reference_deck_from_text,
+from pptx_generation.content_first_deck_generator import (
+    generate_content_first_deck_from_file,
+    generate_content_first_deck_from_text,
 )
 from quality_control.generated_deck_qa import review_generated_deck
 from quality_control.qa_repository import find_matching_metadata_for_deck, find_matching_notes_for_deck
@@ -29,7 +29,7 @@ load_dotenv()
 app = FastAPI(
     title="Slide Analysis System API",
     version="0.1.0",
-    description="Temporary EC2 API for generating editable reference-slide PowerPoint drafts.",
+    description="Temporary EC2 API for generating content-first board-ready PowerPoint drafts.",
 )
 
 _origins = [
@@ -137,10 +137,10 @@ def download_job_output(job_id: str) -> FileResponse:
 
 
 def _run_text_job(job_id: str, text: str, goal: str | None, mode: str) -> None:
-    output_path = OUTPUT_DIRECTORIES["generated_decks"] / f"{job_id}_editable_reference.pptx"
+    output_path = OUTPUT_DIRECTORIES["generated_decks"] / f"{job_id}_content_first.pptx"
     _run_generation_job(
         job_id,
-        lambda: generate_editable_reference_deck_from_text(
+        lambda: generate_content_first_deck_from_text(
             text=text,
             goal=goal,
             mode=mode,
@@ -150,10 +150,10 @@ def _run_text_job(job_id: str, text: str, goal: str | None, mode: str) -> None:
 
 
 def _run_file_job(job_id: str, file_path: str, goal: str | None, mode: str) -> None:
-    output_path = OUTPUT_DIRECTORIES["generated_decks"] / f"{job_id}_editable_reference.pptx"
+    output_path = OUTPUT_DIRECTORIES["generated_decks"] / f"{job_id}_content_first.pptx"
     _run_generation_job(
         job_id,
-        lambda: generate_editable_reference_deck_from_file(
+        lambda: generate_content_first_deck_from_file(
             file_path=file_path,
             goal=goal,
             mode=mode,
@@ -180,9 +180,17 @@ def _run_generation_job(job_id: str, generator) -> None:
                 "metadata_path": metadata.get("metadata_path"),
                 "speaker_notes_path": metadata.get("speaker_notes_path"),
                 "matching_method": metadata.get("matching_method"),
+                "generation_mode": metadata.get("generation_mode"),
+                "content_sufficiency_score": metadata.get("content_sufficiency_score"),
+                "content_sufficiency_level": metadata.get("content_sufficiency_level"),
+                "source_grounding_report_path": metadata.get("source_grounding_report_path"),
+                "slide_plan_json_path": metadata.get("slide_plan_json_path"),
+                "slide_outline": metadata.get("slide_outline", []),
                 "number_of_slides": metadata.get("number_of_slides"),
                 "number_of_content_slides": metadata.get("number_of_content_slides"),
                 "cloned_slide_count": metadata.get("content_slides_cloned_from_source_pptx"),
+                "template_shell_count": metadata.get("template_shell_count"),
+                "custom_layout_count": metadata.get("custom_layout_count"),
                 "image_fallback_count": metadata.get("content_slides_with_image_fallback"),
                 "qa_score": qa.get("overall_score"),
                 "qa_rating": qa.get("rating"),

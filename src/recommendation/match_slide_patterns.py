@@ -87,6 +87,116 @@ def build_recommendation_search_query(content_analysis: dict, user_goal: str | N
     return " ".join(piece for piece in pieces if piece).strip()
 
 
+def find_relevant_patterns_for_planned_slide(
+    planned_slide: dict[str, Any],
+    *,
+    content_analysis: dict[str, Any] | None = None,
+    user_goal: str | None = None,
+    limit: int = 4,
+) -> list[dict[str, Any]]:
+    """Find templates for one planned slide, not the whole deck.
+
+    The previous recommendation flow matched the whole source once and reused
+    those global matches across every slide. For content-first generation, each
+    planned slide gets its own query so a risk slide does not inherit a market
+    sizing or transaction-structure template just because it appeared in the
+    global top five.
+    """
+    query = build_planned_slide_search_query(planned_slide, content_analysis, user_goal)
+    if load_embedding_index():
+        try:
+            results = search_similar_slides_by_text(query, top_k=limit)
+            if results:
+                return [_score_slide_pattern_fit(item, planned_slide) for item in results]
+        except Exception as exc:
+            LOGGER.warning("Per-slide vector search failed; falling back to metadata: %s", exc)
+
+    patterns = get_classified_slide_patterns()
+    if not patterns:
+        return []
+
+    query_terms = _tokens(query)
+    slide_type = planned_slide.get("slide_type")
+    chart_type = planned_slide.get("chart_type")
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for pattern in patterns:
+        score = 0.0
+        if slide_type and pattern.get("slide_type") == slide_type:
+            score += 12.0
+        if chart_type and pattern.get("chart_type") == chart_type:
+            score += 5.0
+        pattern_terms = _tokens(
+            " ".join(
+                str(pattern.get(field) or "")
+                for field in [
+                    "slide_title",
+                    "slide_text",
+                    "slide_type",
+                    "chart_type",
+                    "storyline_type",
+                    "business_context",
+                    "layout_pattern",
+                    "reusable_template_instruction",
+                ]
+            )
+            + " "
+            + " ".join(_normalize_list(pattern.get("tags", [])))
+        )
+        score += len(query_terms & pattern_terms) * 0.4
+        if score > 0:
+            public = _public_pattern(pattern, score)
+            public["template_fit_score"] = round(min(1.0, score / 20.0), 3)
+            scored.append((score, public))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [pattern for _, pattern in scored[:limit]]
+
+
+def build_planned_slide_search_query(
+    planned_slide: dict[str, Any],
+    content_analysis: dict[str, Any] | None = None,
+    user_goal: str | None = None,
+) -> str:
+    analysis = content_analysis or {}
+    blocks = planned_slide.get("content_blocks")
+    block_text = ""
+    if isinstance(blocks, list):
+        block_text = " ".join(
+            " ".join(str(block.get(key) or "") for key in ["heading", "body", "evidence"])
+            if isinstance(block, dict)
+            else str(block)
+            for block in blocks
+        )
+    pieces = [
+        user_goal or "",
+        planned_slide.get("slide_title", ""),
+        planned_slide.get("slide_type", ""),
+        planned_slide.get("chart_type", ""),
+        planned_slide.get("storyline_type", ""),
+        planned_slide.get("slide_objective", ""),
+        planned_slide.get("key_message", ""),
+        planned_slide.get("visual_approach", ""),
+        planned_slide.get("layout_preference", ""),
+        planned_slide.get("template_match_query", ""),
+        " ".join(_normalize_list(planned_slide.get("source_evidence", []))),
+        block_text,
+        analysis.get("business_context", ""),
+        analysis.get("likely_audience", ""),
+        " ".join(_normalize_list(analysis.get("content_tags", []))),
+    ]
+    return " ".join(str(piece) for piece in pieces if piece).strip()
+
+
+def _score_slide_pattern_fit(pattern: dict[str, Any], planned_slide: dict[str, Any]) -> dict[str, Any]:
+    result = dict(pattern)
+    fit = float(result.get("similarity_score") or result.get("match_score") or 0)
+    if planned_slide.get("slide_type") and result.get("slide_type") == planned_slide.get("slide_type"):
+        fit += 0.12
+    if planned_slide.get("chart_type") and result.get("chart_type") == planned_slide.get("chart_type"):
+        fit += 0.05
+    result["template_fit_score"] = round(min(1.0, fit), 6)
+    return result
+
+
 def _analysis_terms(content_analysis: dict, user_goal: str | None) -> set[str]:
     pieces = [
         user_goal or "",

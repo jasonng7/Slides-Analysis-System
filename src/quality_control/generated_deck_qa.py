@@ -168,7 +168,10 @@ def _best_title(text_runs: list[str]) -> str:
         candidates.append(first_line)
     if not candidates:
         return text_runs[0].splitlines()[0].strip() if text_runs else ""
-    return max(candidates, key=len)
+    # The title is normally the first prominent text shape. Returning the
+    # longest early text run mistakes subtitles, callouts, or agenda rows for
+    # slide titles, especially in content-first generated decks.
+    return candidates[0]
 
 
 def _check_structure(
@@ -303,7 +306,7 @@ def _check_generation_metadata(
         )
         add_recommendation_once(
             recommendations,
-            "Manually review cloned chart/table/group slides before sharing the deck.",
+            "Review metadata warnings before sharing the deck.",
         )
 
 
@@ -402,12 +405,12 @@ def _check_template_metadata(
     if not metadata:
         return
     matching_method = metadata.get("matching_method")
-    if matching_method == "vector_search":
+    if matching_method in {"vector_search", "per_slide_vector_search"}:
         issues.append(
             issue(
                 "info",
                 "template_matching",
-                "vector_search used for template matching.",
+                f"{matching_method} used for template matching.",
                 "Keep embedding index available for better template retrieval.",
             )
         )
@@ -504,7 +507,7 @@ def _score_generated_deck(
     slide_quality = 25 - min(12, slide_issue_count)
 
     template_matching = 25
-    if metadata.get("matching_method") != "vector_search":
+    if metadata.get("matching_method") not in {"vector_search", "per_slide_vector_search"}:
         template_matching -= 4
     if not (metadata.get("referenced_template_slides") or metadata.get("cloned_reference_slides")):
         template_matching -= 12

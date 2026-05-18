@@ -92,17 +92,20 @@ def _extract_pdf(path: Path) -> tuple[str, dict[str, Any]]:
 def _extract_pptx(path: Path) -> tuple[str, dict[str, Any]]:
     from pptx import Presentation
 
-    presentation = Presentation(path)
-    slide_texts: list[str] = []
+    try:
+        presentation = Presentation(path)
+        slide_texts: list[str] = []
 
-    for slide_index, slide in enumerate(presentation.slides, start=1):
-        chunks: list[str] = []
-        for shape in slide.shapes:
-            chunks.extend(_shape_text(shape))
-        slide_text = "\n".join(dict.fromkeys(chunks)).strip()
-        slide_texts.append(f"## Slide {slide_index}\n{slide_text}")
+        for slide_index, slide in enumerate(presentation.slides, start=1):
+            chunks: list[str] = []
+            for shape in slide.shapes:
+                chunks.extend(_shape_text(shape))
+            slide_text = "\n".join(dict.fromkeys(chunks)).strip()
+            slide_texts.append(f"## Slide {slide_index}\n{slide_text}")
 
-    return "\n\n".join(slide_texts).strip(), {"slide_count": len(presentation.slides)}
+        return "\n\n".join(slide_texts).strip(), {"slide_count": len(presentation.slides)}
+    except Exception:
+        return _extract_pptx_xml_fallback(path)
 
 
 def _shape_text(shape) -> list[str]:
@@ -118,6 +121,35 @@ def _shape_text(shape) -> list[str]:
         for nested_shape in shape.shapes:
             chunks.extend(_shape_text(nested_shape))
     return [chunk for chunk in chunks if chunk]
+
+
+def _extract_pptx_xml_fallback(path: Path) -> tuple[str, dict[str, Any]]:
+    """Extract PPTX text directly from slide XML when python-pptx cannot open it."""
+    import re
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    slide_texts: list[str] = []
+    namespaces = {
+        "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
+    }
+    with zipfile.ZipFile(path) as archive:
+        slide_names = sorted(
+            [name for name in archive.namelist() if re.match(r"ppt/slides/slide\d+\.xml$", name)],
+            key=lambda name: int(re.search(r"slide(\d+)\.xml$", name).group(1)),  # type: ignore[union-attr]
+        )
+        for slide_index, name in enumerate(slide_names, start=1):
+            root = ET.fromstring(archive.read(name))
+            chunks = [
+                node.text.strip()
+                for node in root.findall(".//a:t", namespaces)
+                if node.text and node.text.strip()
+            ]
+            slide_texts.append(f"## Slide {slide_index}\n" + "\n".join(dict.fromkeys(chunks)))
+    return "\n\n".join(slide_texts).strip(), {
+        "slide_count": len(slide_texts),
+        "extraction_fallback": "pptx_xml",
+    }
 
 
 def _extract_docx(path: Path) -> tuple[str, dict[str, Any]]:

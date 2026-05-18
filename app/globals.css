@@ -240,6 +240,11 @@ h3 {
   font-size: 14px;
 }
 
+.file-drop input {
+  max-width: 185px;
+  font-size: 12px;
+}
+
 .input-footer {
   display: flex;
   justify-content: space-between;

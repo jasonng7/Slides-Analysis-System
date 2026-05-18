@@ -22,6 +22,8 @@ OUTPUT_DIRECTORIES = {
     "generated_decks": OUTPUT_DIR / "generated_decks",
     "generated_deck_logs": OUTPUT_DIR / "generated_decks" / "logs",
     "generated_deck_metadata": OUTPUT_DIR / "generated_decks" / "metadata",
+    "slide_plans": OUTPUT_DIR / "slide_plans",
+    "slide_plan_errors": OUTPUT_DIR / "slide_plans" / "errors",
     "generated_templates": OUTPUT_DIR / "generated_templates",
     "qa_reports": OUTPUT_DIR / "qa_reports",
     "qa_reports_json": OUTPUT_DIR / "qa_reports" / "json",

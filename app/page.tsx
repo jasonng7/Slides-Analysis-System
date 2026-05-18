@@ -29,12 +29,23 @@ type ApiJob = {
   error?: string | null;
   result?: {
     matching_method?: string;
+    generation_mode?: string;
+    content_sufficiency_score?: number;
+    content_sufficiency_level?: string;
     number_of_slides?: number;
     number_of_content_slides?: number;
     cloned_slide_count?: number;
+    template_shell_count?: number;
+    custom_layout_count?: number;
     image_fallback_count?: number;
     qa_score?: number;
     qa_rating?: string;
+    slide_outline?: Array<{
+      slide_number?: number;
+      slide_title?: string;
+      slide_type?: string;
+      generation_strategy?: string;
+    }>;
     qa_top_issues?: Array<{ severity?: string; category?: string; message?: string }>;
   } | null;
 };
@@ -62,17 +73,17 @@ const pipelineSteps = [
   },
   {
     title: "Recommend Storyline",
-    description: "Slide or deck structure with consulting logic",
+    description: "Source-grounded storyline with sufficiency check",
     icon: Layers3
   },
   {
     title: "Match Templates",
-    description: "Vector search across OSK slide patterns",
+    description: "Per-slide OSK match or custom layout decision",
     icon: Search
   },
   {
     title: "Generate PPTX",
-    description: "Editable reference-slide first draft",
+    description: "Client-ready editable PPTX draft",
     icon: Presentation
   },
   {
@@ -145,6 +156,7 @@ export default function Home() {
   const [apiError, setApiError] = useState("");
   const [job, setJob] = useState<ApiJob | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sourceFile, setSourceFile] = useState<File | null>(null);
 
   const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
   const backendEnabled = Boolean(apiBase);
@@ -188,11 +200,13 @@ export default function Home() {
     setActiveStep(1);
 
     try {
-      const response = await fetch(`${apiBase}/api/jobs/text`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: sourceText, goal, mode })
-      });
+      const response = sourceFile
+        ? await submitFileJob(sourceFile)
+        : await fetch(`${apiBase}/api/jobs/text`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: sourceText, goal, mode })
+          });
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(errorText || `Backend request failed: ${response.status}`);
@@ -205,6 +219,17 @@ export default function Home() {
       setIsSubmitting(false);
       setActiveStep(0);
     }
+  }
+
+  async function submitFileJob(file: File) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("goal", goal);
+    formData.append("mode", mode);
+    return fetch(`${apiBase}/api/jobs/file`, {
+      method: "POST",
+      body: formData
+    });
   }
 
   async function pollJob(jobId: string) {
@@ -246,6 +271,10 @@ export default function Home() {
   const downloadHref = job?.download_url && backendEnabled ? `${apiBase}${job.download_url}` : "";
   const displayedQaScore = job?.result?.qa_score ?? 80;
   const displayedQaRating = job?.result?.qa_rating ?? "Usable with minor review";
+  const displayedSlides =
+    job?.result?.slide_outline?.length
+      ? job.result.slide_outline.map((slide) => slide.slide_title || `Slide ${slide.slide_number ?? ""}`)
+      : recommendedSlides;
 
   return (
     <main className="page-shell">
@@ -255,8 +284,8 @@ export default function Home() {
           <h1>Demo dashboard for content-to-deck intelligence</h1>
           <p className="subcopy">
             A Vercel-ready interface connected to an EC2 processing backend:
-            content understanding, recommendation, OSK template matching,
-            editable PPTX generation, and QA review.
+            content-first slide planning, source grounding, OSK template matching,
+            polished PPTX generation, and QA review.
           </p>
         </div>
         <div className="status-panel">
@@ -327,7 +356,12 @@ export default function Home() {
             </div>
             <div className="file-drop">
               <FileText size={19} />
-              <span>{backendEnabled ? "File upload API ready; UI upload comes next" : "File upload connects after API setup"}</span>
+              <input
+                type="file"
+                accept=".pdf,.pptx,.docx,.txt,.md,.csv"
+                onChange={(event) => setSourceFile(event.target.files?.[0] ?? null)}
+              />
+              <span>{sourceFile ? sourceFile.name : "Optional PDF, PPTX, DOCX, TXT, MD or CSV"}</span>
             </div>
           </div>
 
@@ -347,7 +381,7 @@ export default function Home() {
               {isSubmitting
                 ? "Generating..."
                 : backendEnabled
-                  ? "Generate real PPTX"
+                  ? "Generate board-ready PPTX"
                   : "Run demo flow"}
             </button>
           </div>
@@ -418,7 +452,7 @@ export default function Home() {
             </div>
           </div>
           <ol className="slide-list">
-            {recommendedSlides.map((title, index) => (
+            {displayedSlides.map((title, index) => (
               <li key={title} className={finished ? "visible" : ""}>
                 <span>{String(index + 1).padStart(2, "0")}</span>
                 <strong>{title}</strong>
@@ -464,11 +498,15 @@ export default function Home() {
           <ul className="qa-list">
             <li>
               {job?.result
-                ? `${job.result.cloned_slide_count ?? 0} content slides cloned from matched source PPTX`
-                : "23 / 23 content slides cloned from matched source PPTX"}
+                ? `${job.result.template_shell_count ?? 0} template shells, ${job.result.custom_layout_count ?? 0} custom layouts`
+                : "Content-first plan chooses template shells or custom layouts per slide"}
             </li>
-            <li>{job?.result ? `${job.result.image_fallback_count ?? 0} image fallbacks detected` : "0 image fallbacks detected"}</li>
-            <li>{job?.result?.matching_method ? `Matching method: ${job.result.matching_method}` : "Deck may need condensing for a board-ready first draft"}</li>
+            <li>
+              {job?.result?.content_sufficiency_level
+                ? `Content sufficiency: ${job.result.content_sufficiency_level} (${job.result.content_sufficiency_score}/100)`
+                : "Strict source grounding; missing evidence is flagged"}
+            </li>
+            <li>{job?.result?.matching_method ? `Matching method: ${job.result.matching_method}` : "Deck is planned before templates are selected"}</li>
           </ul>
         </article>
       </section>

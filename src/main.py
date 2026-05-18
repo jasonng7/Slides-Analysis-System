@@ -16,6 +16,10 @@ from embeddings.build_vector_index import embed_classified_slides
 from embeddings.embedding_repository import get_embedding_summary
 from embeddings.search_similar_slides import search_similar_slides_by_text
 from ingestion.collect_library import ingest_deck
+from pptx_generation.content_first_deck_generator import (
+    generate_content_first_deck_from_file,
+    generate_content_first_deck_from_text,
+)
 from pptx_generation.editable_reference_deck_generator import (
     generate_editable_reference_deck_from_file,
     generate_editable_reference_deck_from_recommendation,
@@ -192,7 +196,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     generate_text_parser = subparsers.add_parser(
         "generate-pptx-from-text",
-        help="Run recommendation from pasted text, then generate a placeholder PPTX.",
+        help="Run the content-first consultant flow from pasted text, then generate a polished PPTX draft.",
     )
     generate_text_parser.add_argument("--text", required=True, help="Pasted source text.")
     generate_text_parser.add_argument("--goal", help="Optional presentation goal.")
@@ -206,7 +210,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     generate_file_parser = subparsers.add_parser(
         "generate-pptx-from-file",
-        help="Run recommendation from a source file, then generate a placeholder PPTX.",
+        help="Run the content-first consultant flow from a source file, then generate a polished PPTX draft.",
     )
     generate_file_parser.add_argument("--file", required=True, help="Path to source content file.")
     generate_file_parser.add_argument("--goal", help="Optional presentation goal.")
@@ -488,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         try:
-            metadata = generate_placeholder_deck_from_text(
+            metadata = generate_content_first_deck_from_text(
                 text=args.text,
                 goal=args.goal,
                 mode=args.mode,
@@ -509,7 +513,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
         try:
-            metadata = generate_placeholder_deck_from_file(
+            metadata = generate_content_first_deck_from_file(
                 file_path=args.file,
                 goal=args.goal,
                 mode=args.mode,
@@ -917,7 +921,9 @@ def _print_slide_search_results(results) -> None:
 
 
 def _print_generated_deck_result(metadata) -> None:
-    if metadata.get("reference_background_mode"):
+    if metadata.get("generation_mode") == "content_first_consultant":
+        print("Content-first consultant PPTX generated")
+    elif metadata.get("reference_background_mode"):
         print("Reference-style PPTX generated")
     else:
         print("Placeholder PPTX generated")
@@ -927,6 +933,12 @@ def _print_generated_deck_result(metadata) -> None:
     print(f"Slides: {metadata.get('number_of_slides')}")
     print(f"Content slides: {metadata.get('number_of_content_slides')}")
     print(f"Matching method: {metadata.get('matching_method')}")
+    if metadata.get("generation_mode") == "content_first_consultant":
+        print(f"Content sufficiency: {metadata.get('content_sufficiency_level')} ({metadata.get('content_sufficiency_score')}/100)")
+        print(f"Template shells: {metadata.get('template_shell_count', 0)}")
+        print(f"Custom layouts: {metadata.get('custom_layout_count', 0)}")
+        if metadata.get("source_grounding_report_path"):
+            print(f"Source grounding report: {metadata.get('source_grounding_report_path')}")
     if metadata.get("reference_background_mode"):
         print(f"Reference background mode: {metadata.get('reference_background_mode')}")
         if "content_slides_cloned_from_source_pptx" in metadata:

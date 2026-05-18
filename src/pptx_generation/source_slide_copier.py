@@ -100,6 +100,45 @@ def clone_reference_slide_into(
     return target_slide, reference
 
 
+def clone_reference_slide_as_content_shell(
+    target_prs,
+    slide_plan: dict[str, Any],
+    presentation_cache: dict[str, Any] | None = None,
+) -> tuple[Any, dict[str, Any]]:
+    """Clone a reference slide, remove old text, and add source-grounded content.
+
+    Stage 8B kept most copied body text, which could leave irrelevant template
+    content in the generated deck. This variant treats the source slide as a
+    visual shell only: clone shapes, clear text/table cells, then place the
+    planned slide content back as editable PowerPoint text.
+    """
+    from pptx import Presentation
+
+    matched = slide_plan.get("matched_template") or {}
+    reference = resolve_reference_slide_source(matched)
+    if not reference.get("found"):
+        raise SlideCloneError(str(reference.get("warning") or "Reference source slide not found."))
+
+    source_file = str(reference["source_file"])
+    cache = presentation_cache if presentation_cache is not None else {}
+    source_prs = cache.get(source_file)
+    if source_prs is None:
+        source_prs = Presentation(source_file)
+        cache[source_file] = source_prs
+
+    slide_number = int(reference["slide_number"])
+    if slide_number < 1 or slide_number > len(source_prs.slides):
+        raise SlideCloneError(f"Slide {slide_number} is outside source deck range.")
+
+    source_slide = source_prs.slides[slide_number - 1]
+    target_slide = target_prs.slides.add_slide(target_prs.slide_layouts[6])
+    _clear_slide(target_slide)
+    _clone_slide_xml(source_slide, target_slide)
+    _clear_copied_text(target_slide)
+    _add_content_first_overlay(target_slide, slide_plan, reference)
+    return target_slide, reference
+
+
 def add_image_fallback_slide(target_prs, slide_plan: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
     from pptx_generation.reference_deck_generator import _add_reference_content_slide
 
@@ -213,6 +252,127 @@ def _panel_content(slide_plan: dict[str, Any]) -> str:
     else:
         lines.extend(["", "- Replace copied text/visuals with source-backed content."])
     return "\n".join(str(line) for line in lines)
+
+
+def _clear_copied_text(slide) -> None:
+    for shape in slide.shapes:
+        if getattr(shape, "has_text_frame", False):
+            shape.text_frame.clear()
+        if getattr(shape, "has_table", False):
+            for row in shape.table.rows:
+                for cell in row.cells:
+                    cell.text = ""
+
+
+def _add_content_first_overlay(slide, slide_plan: dict[str, Any], reference: dict[str, Any]) -> None:
+    title = str(slide_plan.get("slide_title") or "Source-grounded slide").strip()
+    _add_textbox(slide, 0.55, 0.28, 12.15, 0.58, title, 16, bold=True)
+    key_message = str(slide_plan.get("key_message") or slide_plan.get("slide_objective") or "").strip()
+    if key_message:
+        _add_box(slide, 0.65, 1.05, 12.0, 0.7, key_message, font_size=9, fill=RGBColor(236, 244, 251))
+
+    blocks = _overlay_blocks(slide_plan)
+    if _is_matrix_like(slide_plan):
+        headers = ["Area", "Source-backed content", "Implication / gap"]
+        rows = []
+        for block in blocks[:5]:
+            rows.append([block["heading"], block["body"], block["evidence"]])
+        _add_table(slide, 0.72, 2.0, 11.85, 3.65, headers, rows)
+    else:
+        for index, block in enumerate(blocks[:4]):
+            x = 0.72 + (index % 2) * 6.05
+            y = 2.0 + (index // 2) * 1.55
+            _add_box(
+                slide,
+                x,
+                y,
+                5.62,
+                1.25,
+                f"{block['heading']}\n{block['body']}",
+                font_size=8,
+                fill=RGBColor(255, 255, 255),
+            )
+
+    evidence = _string_items(slide_plan.get("source_evidence"))[:2]
+    missing = _string_items(slide_plan.get("missing_data_or_assumptions"))[:1]
+    bottom = "Source evidence: " + ("; ".join(evidence) if evidence else "source basis to confirm")
+    if missing:
+        bottom += "\nMissing / assumption: " + "; ".join(missing)
+    _add_box(slide, 0.65, 6.0, 12.0, 0.72, bottom, font_size=6, fill=RGBColor(248, 250, 252))
+    _add_clone_footer(slide, slide_plan, reference)
+
+
+def _overlay_blocks(slide_plan: dict[str, Any]) -> list[dict[str, str]]:
+    raw = slide_plan.get("content_blocks")
+    blocks: list[dict[str, str]] = []
+    if isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                blocks.append(
+                    {
+                        "heading": str(item.get("heading") or item.get("title") or "Finding"),
+                        "body": str(item.get("body") or item.get("content") or ""),
+                        "evidence": str(item.get("evidence") or ""),
+                    }
+                )
+            elif str(item).strip():
+                blocks.append({"heading": str(item), "body": "", "evidence": ""})
+    while len(blocks) < 3:
+        evidence = _string_items(slide_plan.get("source_evidence"))
+        idx = len(blocks)
+        blocks.append(
+            {
+                "heading": f"Source-backed point {idx + 1}",
+                "body": evidence[idx] if idx < len(evidence) else str(slide_plan.get("key_message") or ""),
+                "evidence": evidence[idx] if idx < len(evidence) else "",
+            }
+        )
+    return blocks
+
+
+def _is_matrix_like(slide_plan: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(slide_plan.get(key) or "").lower()
+        for key in ["slide_type", "chart_type", "slide_title", "visual_approach"]
+    )
+    return any(term in text for term in ["matrix", "table", "benchmark", "comparison", "options", "risk"])
+
+
+def _add_table(slide, x: float, y: float, w: float, h: float, headers: list[str], rows: list[list[str]]) -> None:
+    row_count = max(2, min(len(rows) + 1, 8))
+    table_shape = slide.shapes.add_table(row_count, len(headers), Inches(x), Inches(y), Inches(w), Inches(h))
+    table = table_shape.table
+    for col, header in enumerate(headers):
+        cell = table.cell(0, col)
+        cell.text = header
+        _format_cell(cell, fill=RGBColor(18, 39, 76), color=RGBColor(255, 255, 255), bold=True)
+    for row_index, row in enumerate(rows[: row_count - 1], start=1):
+        for col in range(len(headers)):
+            cell = table.cell(row_index, col)
+            cell.text = row[col] if col < len(row) else ""
+            _format_cell(cell, fill=RGBColor(255, 255, 255), color=RGBColor(24, 31, 42))
+
+
+def _format_cell(cell, *, fill: RGBColor, color: RGBColor, bold: bool = False) -> None:
+    cell.fill.solid()
+    cell.fill.fore_color.rgb = fill
+    cell.margin_left = Inches(0.06)
+    cell.margin_right = Inches(0.06)
+    cell.margin_top = Inches(0.03)
+    cell.margin_bottom = Inches(0.03)
+    for paragraph in cell.text_frame.paragraphs:
+        paragraph.font.name = "Aptos"
+        paragraph.font.size = Pt(7.0)
+        paragraph.font.bold = bold
+        paragraph.font.color.rgb = color
+
+
+def _string_items(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value]
+    return []
 
 
 def _clear_slide(slide) -> None:
